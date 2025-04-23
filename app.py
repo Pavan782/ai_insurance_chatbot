@@ -1,36 +1,47 @@
 import streamlit as st
 import google.generativeai as genai
 import fitz  # PyMuPDF
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.docstore.document import Document
 
-# Setup Gemini API
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+# Configure Gemini API Key
+api_key = st.secrets["GOOGLE_API_KEY"]
+genai.configure(api_key=api_key)
 
-# Extract text from PDF
 def extract_pdf_text(uploaded_file):
     doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-    return "".join(page.get_text() for page in doc)
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
 
-# Build knowledge base
 def create_knowledge_base(text):
+    # Split the text into manageable chunks
     splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     docs = splitter.split_documents([Document(page_content=text)])
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+    # Generate embeddings using Google API
+    embeddings = []
+    for doc in docs:
+        response = genai.generate_embeddings(model="textembedding-ge2", text=doc.page_content)
+        embeddings.append(response.embeddings)
+
+    # Create a FAISS vector store from the generated embeddings
     vectorstore = FAISS.from_documents(docs, embeddings)
     return vectorstore
 
-# Ask question with context
 def ask_gemini_with_context(query, vectorstore):
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
     relevant_docs = retriever.get_relevant_documents(query)
-    context = "\n\n".join(doc.page_content for doc in relevant_docs)
-    prompt = f"Answer based on the context:\n{context}\n\nQuestion: {query}"
+    context = "\n\n".join([doc.page_content for doc in relevant_docs])
+    prompt = f"Answer the question based on the context below:\n\nContext:\n{context}\n\nQuestion: {query}"
+
+    # Use the Gemini model for text generation with the context
     model = genai.GenerativeModel(model_name='gemini-1.5-flash')
     response = model.generate_content(prompt)
-    return response.text or "Sorry, I couldn't find the answer. Let me connect you to a human agent."
+
+    return response.text if response.text else "I'm not sure how to answer that. Let me connect you to our agent."
 
 # Streamlit UI
 st.set_page_config(page_title="Insurance Chatbot", page_icon="🤖")
@@ -43,10 +54,11 @@ if uploaded_file:
         kb = create_knowledge_base(pdf_text)
     st.success("Knowledge base created!")
 
-if "chat" not in st.session_state:
+if 'chat' not in st.session_state:
     st.session_state.chat = []
 
 user_query = st.text_input("Ask a question about your insurance policy:")
+
 if user_query and uploaded_file:
     with st.spinner("Thinking..."):
         answer = ask_gemini_with_context(user_query, kb)
