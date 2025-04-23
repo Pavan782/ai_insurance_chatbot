@@ -1,70 +1,53 @@
 import streamlit as st
 import google.generativeai as genai
 import fitz  # PyMuPDF
-import numpy as np
 from langchain_community.vectorstores import FAISS
 from langchain.docstore.document import Document
 from langchain.text_splitter import CharacterTextSplitter
 
 # Setup Gemini API
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-embedding_model_name = "models/embedding-001"  # Correct model ID for embeddings
 
 # Extract text from PDF
 def extract_pdf_text(uploaded_file):
     doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
     return "".join(page.get_text() for page in doc)
 
-# Build knowledge base using Gemini embeddings
+# Build knowledge base using Gemini embeddings and FAISS
 def create_knowledge_base(text):
     splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     docs = splitter.split_documents([Document(page_content=text)])
-    embeddings_list = []
-    texts = []
+    texts = [doc.page_content for doc in docs]
 
-    for doc in docs:
+    def embed_fn(texts):
         try:
-            res = genai.embed_content(
-                model=embedding_model_name,
-                content=doc.page_content,
+            return [genai.embed_content(
+                model="models/embedding-001",
+                content=t,
                 task_type="retrieval_document"
-            )
-            embedding = res['embedding']
-            embeddings_list.append(embedding)
-            texts.append(doc.page_content)
+            )['embedding'] for t in texts]
         except Exception as e:
             st.error(f"Embedding error: {e}")
-            return None
+            return []
 
-    if embeddings_list:
-        vectorstore = FAISS.from_embeddings(
-            text_embeddings=list(zip(texts, embeddings_list)),
-            embedding_function=lambda x: genai.embed_content(
-                model=embedding_model_name,
-                content=x,
-                task_type="retrieval_query"
-            )['embedding']
-        )
+    try:
+        vectorstore = FAISS.from_texts(texts=texts, embedding=embed_fn)
         return vectorstore
-    return None
+    except Exception as e:
+        st.error(f"Vectorstore creation error: {e}")
+        return None
 
-# Ask question with context
+# Ask Gemini with document context
 def ask_gemini_with_context(query, vectorstore):
     if vectorstore is None:
-        return "Knowledge base is not initialized."
-    
+        return "Error: Knowledge base not initialized."
     retriever = vectorstore.as_retriever(search_kwargs={"k": 4})
     relevant_docs = retriever.get_relevant_documents(query)
     context = "\n\n".join(doc.page_content for doc in relevant_docs)
-
-    prompt = f"Use the following insurance policy content to answer:\n\n{context}\n\nQ: {query}"
-
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        res = model.generate_content(prompt)
-        return res.text or "Sorry, I couldn’t find a clear answer."
-    except Exception as e:
-        return f"Response generation error: {e}"
+    prompt = f"Answer based on the context:\n{context}\n\nQuestion: {query}"
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+    response = model.generate_content(prompt)
+    return response.text or "Sorry, I couldn't find the answer. Let me connect you to a human agent."
 
 # Streamlit UI
 st.set_page_config(page_title="Insurance Chatbot", page_icon="🤖")
