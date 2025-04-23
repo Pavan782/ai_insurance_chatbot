@@ -1,8 +1,6 @@
 streamlit
 google-generativeai
-google-genai
 PyMuPDF
 langchain==0.1.14
 faiss-cpu
-sentence-transformers
 langchain_community
