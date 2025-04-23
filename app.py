@@ -1,9 +1,9 @@
 import streamlit as st
 import google.generativeai as genai
 import fitz  # PyMuPDF
-from langchain.vectorstores import FAISS
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.docstore.document import Document
+from langchain.vectorstores import FAISS
 
 # Configure Gemini API Key
 api_key = st.secrets["GOOGLE_API_KEY"]
@@ -21,14 +21,8 @@ def create_knowledge_base(text):
     splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     docs = splitter.split_documents([Document(page_content=text)])
 
-    # Generate embeddings using Google API
-    embeddings = []
-    for doc in docs:
-        response = genai.generate_embeddings(model="textembedding-ge2", text=doc.page_content)
-        embeddings.append(response.embeddings)
-
-    # Create a FAISS vector store from the generated embeddings
-    vectorstore = FAISS.from_documents(docs, embeddings)
+    # Create FAISS vector store for searching (not using embeddings directly here)
+    vectorstore = FAISS.from_documents(docs, embeddings=[])
     return vectorstore
 
 def ask_gemini_with_context(query, vectorstore):
