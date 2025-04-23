@@ -20,11 +20,11 @@ def create_knowledge_base(text):
     splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
     docs = splitter.split_documents([Document(page_content=text)])
     embeddings_list = []
-    embedding_model = genai.GenerativeModel(model_name=embedding_model_name)
+    embedding_model_name = "gemini-embedding-1.5" # Ensure this is a valid embedding model
     for doc in docs:
         try:
-            response = embedding_model.generate_embeddings(contents=[doc.page_content])
-            embedding = response.embeddings[0].values
+            response = genai.embed(model=embedding_model_name, contents=[doc.page_content])
+            embedding = response['embedding'][0]['values']
             embeddings_list.append(embedding)
         except Exception as e:
             st.error(f"Error generating embedding for chunk: {e}")
@@ -33,7 +33,7 @@ def create_knowledge_base(text):
     if embeddings_list:
         vectorstore = FAISS.from_embeddings(
             text_embeddings=list(zip([doc.page_content for doc in docs], embeddings_list)),
-            embedding_function=lambda x: embedding_model.generate_embeddings(contents=x).embeddings[0].values
+            embedding_function=lambda x: genai.embed(model=embedding_model_name, contents=x)['embedding'][0]['values']
         )
         return vectorstore
     return None
